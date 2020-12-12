@@ -1,0 +1,227 @@
+---
+title: "My Chess in Data"
+author: ''
+date: '2020-12-12'
+slug: chess
+categories:
+  - data
+tags: []
+---
+
+```{r setup, include=F}
+library(knitr)
+opts_chunk$set(echo = F)
+opts_chunk$set(message = F)
+opts_chunk$set(warning = F)
+opts_chunk$set(fig.align = 'center')
+opts_chunk$set(out.width = "100%")
+opts_chunk$set(fig.asp = 0.625)
+
+# load packages
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(devtools, tidyverse, janitor, data.table, bigchess, lubridate,
+               scales, gt, zoo, gridExtra)
+
+# set theme
+if (!require("ggthemr")) {
+  devtools::install_github("cttobin/ggthemr")
+  library(ggthemr)
+}
+ggthemr("fresh")
+
+# load data 
+all_games <- read_csv("cleaned/all_games.csv")
+```
+
+
+As a 7-year old, I was a serious chess player. I actually took a year off from school to play chess competitively. The only hitch was that I completely lost interest in the game before that gap year even started... which was somewhat awkward. But I regained my casual interest in chess and I've been playing on and off for the last couple of years. 
+
+In recent months, I've become a lot more interested in chess, and with the explosion of chess streamers/YouTubers providing educational chess videos, it's much easier to seek genuine improvement and come to love chess again.
+
+It was only a matter of time before my love of chess met my love of data, and I decided to analyze my chess playing in the past year to see what interesting things I could learn. R's `bigchess` library came in handy
+
+### Observation 1: I play too much chess
+
+```{r playrate, fig.cap = "Games played each day. Can you tell when grad school applications started?"}
+yr <- all_games %>%
+  filter(date >= as_date("2020-01-01"), !is.na(event)) %>%
+  group_by(date)
+
+# total games over time
+yr %>%
+  mutate(n = n()) %>%
+  ggplot(aes(x = date, y = n)) + 
+  geom_point() + 
+  geom_line() + 
+  scale_x_date(breaks = date_breaks("months"), labels = date_format("%b")) + 
+  labs(x = "", y = "Number of games played in a day") 
+```
+
+I knew I had been playing a lot of chess, but this graph still rocked me: in recent months I've been playing close to *fifty* games per day. That's a crazy amount! As Figure \@ref(fig:gametype) shows, this is largely composed of 1-minute games, so it's not as impossible as it sounds. I think it's been driven by procrastination on impending applications, although I will definitely play more once I'm free from applications work.
+
+Also fun to note is that I initially *reduced* my games played under lockdown, most likely because I was focusing on other games. Those early days were also exciting because there was an explosion of new online games to connect people: I discovered some addictive games like [Secret Hitler](https://www.secrethitler.io) and spent more time on those. 
+
+I was curious to see how much actual *time* this play translated to, so I made some conservative assumptions about how long each game would take on average and re-created Figure \@ref(fig:playrate) with an estimate of how much time I spent playing, rather than how many games I played.
+
+```{r, fig.cap = "Time spent on chess each day."}
+# summed %>%
+#   ungroup() %>%
+#   filter(mon == 11) %>%
+#   mutate(time_each = c(3, 1, 5),
+#          time_event = avg * time_each) %>%
+#   select(-mon) %>%
+#   gt() %>%
+#   tab_header(title = "Time spent on chess in November") %>%
+#   cols_label(event = "Time control", avg = "Games/day", 
+#              time_each = "Assumed minutes/game", 
+#              time_event = "Minutes/day") %>%
+#   cols_align("center") %>%
+#   fmt_number(columns = c("avg", "time_event"), decimal = 1)
+
+# graph of time spent on chess per day 
+yr %>%
+  filter(site == "Chess.com") %>%
+  mutate(game_time = as.numeric(end_time - start_time)) %>%
+  filter(game_time > 0) %>%
+  group_by(event) %>% 
+  summarise(mean_time = mean(game_time)) -> time_df
+times <- time_df$mean_time
+names(times) <- time_df$event
+yr %>%
+  mutate(time_event = times[event],
+         time_day = sum(time_event)/60) %>%
+  distinct(date, .keep_all = T) %>%
+  arrange(date) %>%
+  select(time_day) %>%
+  ungroup() %>%
+  ggplot(aes(x = date, y = time_day)) + 
+  geom_point() + geom_line() + 
+  scale_x_date(breaks = date_breaks("months"), labels = date_format("%b")) + 
+  scale_y_continuous(labels = seq(0, 250, 50), breaks = seq(0, 250, 50)) + 
+  labs(x = "", y = "", title = "Time (in minutes) playing chess every day",
+       caption = "Game times are available only for Chess.com games. I imputed mean game times from those for Lichess games.") + 
+  theme(plot.title = element_text(hjust = 0.5, size = 16))
+```
+
+This figure shows that under very conservative assumptions about how long each game lasts, I've spent close to *two hours* every day playing chess in November. That's a frankly scary number, and doesn't even include all the time spent solving puzzles and watching chess videos, which would likely double that estimate. In short, chess is an addictive game!
+
+### Observation 2: I mostly play bullet, but blitz and rapid are growing
+
+```{r gametype, fig.cap = "Monthly and time control breakdown."}
+yr %>% 
+  group_by(date, event) %>%
+  mutate(n = n(),
+         mon = month(date)) %>%
+  group_by(mon, event) %>% 
+  summarise(avg = mean(n)) -> summed 
+
+summed %>%
+  ggplot(aes(x = mon, y = avg, fill = event)) + 
+  geom_bar(stat = "identity") + 
+  scale_x_continuous(labels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"), breaks = 1:12) + 
+  labs(x = "", y = "Average games/day", fill = "Time control") + 
+  theme(plot.title = element_text(hjust=0.5, size = 16))
+```
+
+I was curious to know what chess time controls I was playing most, and how that changed over time. The main time controls I play are bullet (1 minute for each player), blitz (3 to 5 minutes for each player) and rapid (10 to 15 minutes for each player). Figure \@ref(fig:gametype) shows that I used to play only bullet, but blitz and rapid are growing and currently the majority of my games are blitz.
+
+This makes a lot of sense, because bullet is a more-or-less mindless format that I would play more out of boredom than out of genuine desire to play chess. I'm going towards slower time controls, which is likely key to getting better.
+
+### Observation 3: I am very consistent with openings
+
+(This section isn't really understandable without general knowledge of chess.)
+
+```{r openings_w, fig.cap = "My most common first moves as White."}
+all_games %>%
+  filter(me == "White", event %in% c("Blitz", "Bullet")) %>%
+  mutate(w1 = fct_lump_n(w1, n = 3)) %>%
+  ggplot(aes(x = w1, fill = event)) + 
+  stat_count(position = "dodge") + 
+  labs(x = "First move as white", y = "Frequency")
+```
+
+As White, I love to play the English Opening (beginning with 1. c4), a somewhat rarer opening that involves less theory and leads to solid, non-crazy positions. I picked it up when I was not interested in learning opening theory, and stuck with it. I still play it in bullet, where time is so limited that you have to play openings you know or else the time will tick down as you try to figure out where you are. But you can see that in blitz, I'm more experimental, playing d4 and e4 (the most common openings) with much more frequency, trying to make up this deficiency in my knowledge.
+
+```{r openings_b, fig.cap = "My most common responses as Black."}
+all_games %>%
+  filter(me == "Black", event %in% c("Blitz", "Bullet")) %>%
+  mutate(w1 = fct_lump_n(w1, n = 3)) %>%
+  group_by(w1) %>%
+  mutate(b1 = fct_lump_n(b1, n = 2)) %>%
+  filter(!is.na(w1), !is.na(b1)) -> temp 
+
+ggplot(temp, aes(x = b1, fill = event)) + 
+  geom_bar() + 
+  facet_wrap(~w1, scales = "free") + 
+  labs(x = "First move as black", y = "Frequency")
+```
+
+With the black pieces I'm similarly consistent: I play the French defense (1. e4 e6) most commonly, and I even use that in response to 1. d4. The only exception is when faced with 1. c4, I'm much more idiosyncratic---playing e6 doesn't really make as much sense in that case. 
+
+```{r eco_pre, include=F}
+all_games %>%
+  rename(ECO = eco, Result = result) %>%
+  filter(me == "White") %>%
+  browse_eco_opening(5) %>%
+  rename(white = White_score, draw = Draws_percent, black = Black_score) %>%
+  pivot_longer(cols = c("white", "draw", "black")) -> results
+labs <- results$value
+labs <- sapply(1:length(labs), function(i) { ifelse((i-2) %% 3 == 0, NA, paste0(labs[i], "%"))})
+p1 <- results %>%
+  mutate(eco_n = paste0(ECO, " (", N, " games)")) %>%
+  ggplot(aes(y = reorder(eco_n, N), x = value/100, fill = name)) + 
+  geom_bar(stat = "identity", color = 'black') + 
+  scale_x_continuous(labels = percent) +
+  scale_fill_manual(values = c("black" = "black", "white" = "white", "draw" = "grey50")) + 
+  geom_text(aes(label = labs), position = position_stack(vjust = 0.5), color = "grey50") + 
+  labs(x = "Winrate", y = "ECO Opening", fill = "Winner", title = "My opening winrate as White") + 
+  theme(plot.title = element_text(hjust=0.5, size = 16))
+
+all_games %>%
+  rename(ECO = eco, Result = result) %>%
+  filter(me == "Black") %>%
+  browse_eco_opening(5) %>%
+  rename(white = White_score, draw = Draws_percent, black = Black_score) %>%
+  pivot_longer(cols = c("white", "draw", "black")) %>%
+  mutate(name = ordered(name, levels = c("black", "draw", "white"))) -> results
+labs2 <- results$value
+labs2 <- sapply(1:length(labs2), function(i) { ifelse((i-2) %% 3 == 0, NA, paste0(labs2[i], "%"))})
+p2 <- results %>%
+  mutate(eco_n = paste0(ECO, " (", N, " games)")) %>%
+  ggplot(aes(y = reorder(eco_n, N), x = value/100, fill = name)) + 
+  geom_bar(stat = "identity", color = 'black') + 
+  scale_x_continuous(labels = percent) +
+  scale_fill_manual(values = c("black" = "black", "white" = "white", "draw" = "grey50")) + 
+  geom_text(aes(label = labs2), position = position_stack(vjust = 0.5), color = "grey50") + 
+  labs(x = "Winrate", y = "ECO Opening", fill = "Winner", title = "My opening winrate as Black") + 
+  theme(plot.title = element_text(hjust=0.5, size = 16))
+```
+
+```{r eco, fig.cap = "Winrate of my most common openings.", fig.asp = 1}
+grid.arrange(p1, p2, nrow = 2)
+```
+
+Classifying my openings more rigorously than just the first move requires using the somewhat mysterious Encyclopedia of Chess Openings (ECO) classifications. The most interesting result to me is that my relatively least common openings are more successful, with both black and white. This is likely endogenous: people play these less common openings when they are uncomfortable and thus lose more often to me. For example, with white my most successful opening is the Symmetrical English (A32), an opening reputed to be drawish: it's commonly played by people who have never faced 1. c4 before, and who are thus more likely to lose. 
+
+The other noteworthy thing for me is that I have very little success as black when I play uncommon responses to 1. d4 (A40). Since 1. d4 is the most common opening at higher levels, that suggests I should develop a strong, mainstream response to 1. d4 to have a shot at improving.
+
+### Observation 3: My rating has not improved with increased play
+
+```{r elo, fig.cap = "My ratings over time."}
+# elo over time (by site/format)
+yr %>%
+  ungroup() %>%
+  filter(event != "Rapid") %>%
+  mutate(site_event = paste(site, event)) %>%
+  ggplot(aes(x = date, y = my_elo)) + 
+  geom_point() + 
+  geom_line() +
+  geom_smooth(method = 'lm', se = F) + 
+  facet_wrap(~site_event) + 
+  labs(x = "", y = "Rating", caption = "Ratings examined separately by site since Lichess\n and Chess.com use very different rating systems.")
+```
+
+A somewhat vexing fact is that despite my significantly increased interest in chess, my actual *rating* has not increased much. With the exception of Lichess blitz---which is muddied by a very inaccurate rating in early January due to my not playing enough Lichess blitz games---there's been no real upward trend in my rating. There have been upswings and downswings, but no sustained progress. That's a good reality check about how much effort is required to improve at this level. I'm around the 90th percentile of both Lichess and Chess.com---it makes sense that progressing further requires much more investment than watching some YouTube videos and playing lots of games. 
+
+I'm toying with ideas about investing in chess more heavily, so I'll think hard about what that investment will actually be, since what I'm doing right now is clearly taking a *lot* of time and not yielding any improvement. And maybe once I do, I'll have more to say about a data-driven approach to chess improvement. Until then, I'll play some more games.
