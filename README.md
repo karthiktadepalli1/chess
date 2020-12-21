@@ -2,7 +2,7 @@
 
 Supporting repository for [analyzing](https://www.karthiktadepalli.com/chess) my chess games using R's `bigchess` library to parse games. This repository consists of:
 
-* `pull_chesscom.sh` - a shell script to pull Chess.com
+* `pull_chesscom.sh` - a shell script to pull Chess.com games from their API
 * `pgn_read.R` - the file that reads in my games in PGN form and converts them into a single, cleaned CSV.
 * `analysis.Rmd` - the R Markdown document that produces the analysis on my blog.
 
